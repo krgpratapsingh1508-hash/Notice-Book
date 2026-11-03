@@ -9,8 +9,6 @@ import streamlit as st
 
 DATA_FILE = "khata.json"
 HOME = "🏠 सबका हिसाब"
-ADMIN = "🔐 एडमिन पैनल"
-ADMIN_PASSWORD = "0610"
 KIND_LABELS = {"diya": "🔴 मैंने दिए", "mila": "🟢 मुझे मिले"}
 
 st.set_page_config(page_title="खाता बुक", page_icon="📒", layout="centered")
@@ -540,6 +538,13 @@ def make_pdf(name, entries):
     return bytes(pdf.output())
 
 
+def admin_password():
+    try:
+        return str(st.secrets["ADMIN_PASSWORD"])
+    except Exception:
+        return os.environ.get("ADMIN_PASSWORD", "admin123")
+
+
 def goto(target):
     st.session_state.pending_nav = target
     st.rerun()
@@ -550,25 +555,102 @@ if "data" not in st.session_state:
     st.session_state.data = load_data()
 if "edit" not in st.session_state:
     st.session_state.edit = None
-if "admin_ok" not in st.session_state:
-    st.session_state.admin_ok = False
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
 if "nav" not in st.session_state:
     st.session_state.nav = HOME
 if "pending_nav" in st.session_state:
     st.session_state.nav = st.session_state.pop("pending_nav")
 
 data = st.session_state.data
-if st.session_state.nav not in (HOME, ADMIN) and st.session_state.nav not in data:
+if st.session_state.nav != HOME and st.session_state.nav not in data:
     st.session_state.nav = HOME
 
 # ---------- साइडबार ----------
 st.sidebar.title("📒 खाता बुक")
 
+with st.sidebar.form("add_person", clear_on_submit=True):
+    new_name = st.text_input("नया व्यक्ति जोड़ें", placeholder="नाम लिखिए")
+    if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
+        name = new_name.strip()
+        if not name:
+            st.sidebar.warning("नाम लिखिए।")
+        elif name in data or name == HOME:
+            st.sidebar.warning("यह नाम पहले से है।")
+        else:
+            data[name] = []
+            save_data(data)
+            goto(name)
+
 choice = st.sidebar.radio(
-    "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower) + [ADMIN], key="nav"
+    "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
 )
-if choice != ADMIN:
-    st.session_state.admin_ok = False  # पैनल से बाहर जाते ही फिर लॉक
+
+st.sidebar.divider()
+st.sidebar.download_button(
+    "💾 बैकअप डाउनलोड",
+    data=json.dumps(data, ensure_ascii=False, indent=2),
+    file_name="khata_backup.json",
+    mime="application/json",
+    use_container_width=True,
+)
+uploaded = st.sidebar.file_uploader("बैकअप वापस डालें", type="json")
+if uploaded is not None and st.sidebar.button("♻️ रिस्टोर करें", use_container_width=True):
+    try:
+        restored = json.load(uploaded)
+        for v in restored.values():
+            sort_entries(v)
+        st.session_state.data = restored
+        save_data(restored)
+        goto(HOME)
+    except (json.JSONDecodeError, AttributeError, KeyError):
+        st.sidebar.error("फ़ाइल सही नहीं है।")
+
+# ---------- एडमिन पैनल (सिर्फ़ साइडबार में) ----------
+st.sidebar.divider()
+with st.sidebar.expander("🔐 एडमिन पैनल", expanded=st.session_state.is_admin):
+    if not st.session_state.is_admin:
+        with st.form("admin_login", clear_on_submit=True):
+            pw = st.text_input("पासवर्ड", type="password")
+            if st.form_submit_button("लॉगिन", use_container_width=True):
+                if pw == admin_password():
+                    st.session_state.is_admin = True
+                    st.rerun()
+                else:
+                    st.error("पासवर्ड गलत है।")
+    else:
+        st.caption("✅ एडमिन मोड चालू है")
+        if choice == HOME:
+            st.info("नाम बदलने या हटाने के लिए ऊपर से किसी व्यक्ति का खाता चुनें।")
+        else:
+            st.markdown("**⚙️ नाम बदलें / व्यक्ति हटाएं**")
+            new_n = st.text_input("नया नाम", value=choice, key=f"rename_{choice}")
+            if st.button("नाम बदलें", key=f"rename_btn_{choice}", use_container_width=True):
+                nn = new_n.strip()
+                if not nn:
+                    st.warning("नाम खाली नहीं हो सकता।")
+                elif nn != choice and (nn in data or nn == HOME):
+                    st.warning("यह नाम पहले से है।")
+                elif nn != choice:
+                    data[nn] = data.pop(choice)
+                    save_data(data)
+                    st.session_state.edit = None
+                    goto(nn)
+
+            st.divider()
+            st.caption("इस व्यक्ति का पूरा हिसाब हट जाएगा।")
+            with st.popover(f"🗑️ {choice} को हटाएं", use_container_width=True):
+                st.write("पक्का हटाना है? यह वापस नहीं आएगा।")
+                if st.button("हाँ, हटा दो", key="del_person", type="primary"):
+                    del data[choice]
+                    save_data(data)
+                    st.session_state.edit = None
+                    goto(HOME)
+
+        st.divider()
+        if st.button("🚪 लॉगआउट", key="admin_logout", use_container_width=True):
+            st.session_state.is_admin = False
+            st.rerun()
 
 # =====================================================
 # होम पेज
@@ -617,66 +699,6 @@ if choice == HOME:
             )
             if col_btn.button("खोलें", key=f"open_{n}", use_container_width=True):
                 goto(n)
-
-# =====================================================
-# एडमिन पैनल (पासवर्ड से)
-# =====================================================
-elif choice == ADMIN:
-    st.title("🔐 एडमिन पैनल")
-
-    if not st.session_state.admin_ok:
-        with st.form("admin_login"):
-            pw = st.text_input("पासवर्ड", type="password", placeholder="पासवर्ड डालिए")
-            if st.form_submit_button("🔓 खोलें", use_container_width=True, type="primary"):
-                if pw == ADMIN_PASSWORD:
-                    st.session_state.admin_ok = True
-                    st.rerun()
-                else:
-                    st.error("पासवर्ड गलत है।")
-    else:
-        flash = st.session_state.pop("flash", None)
-        if flash:
-            st.success(flash)
-
-        if st.button("🔒 लॉक करें"):
-            st.session_state.admin_ok = False
-            st.rerun()
-
-        st.subheader("➕ नया व्यक्ति जोड़ें")
-        with st.form("add_person", clear_on_submit=True):
-            new_name = st.text_input("नाम", placeholder="नाम लिखिए")
-            if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
-                nm = new_name.strip()
-                if not nm:
-                    st.warning("नाम लिखिए।")
-                elif nm in data or nm in (HOME, ADMIN):
-                    st.warning("यह नाम पहले से है।")
-                else:
-                    data[nm] = []
-                    save_data(data)
-                    st.session_state.flash = f"✅ {nm} जोड़ दिया गया।"
-                    st.rerun()
-
-        st.subheader("💾 बैकअप")
-        st.download_button(
-            "💾 बैकअप डाउनलोड",
-            data=json.dumps(data, ensure_ascii=False, indent=2),
-            file_name="khata_backup.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-        uploaded = st.file_uploader("बैकअप वापस डालें", type="json")
-        if uploaded is not None and st.button("♻️ रिस्टोर करें", use_container_width=True):
-            try:
-                restored = json.load(uploaded)
-                for v in restored.values():
-                    sort_entries(v)
-                st.session_state.data = restored
-                save_data(restored)
-                st.session_state.flash = "✅ बैकअप वापस डाल दिया गया।"
-                st.rerun()
-            except (json.JSONDecodeError, AttributeError, KeyError):
-                st.error("फ़ाइल सही नहीं है।")
 
 # =====================================================
 # व्यक्ति का पेज
@@ -843,28 +865,3 @@ else:
                 use_container_width=True,
                 type="primary",
             )
-
-    # ---- व्यक्ति की सेटिंग ----
-    with st.expander("⚙️ नाम बदलें / व्यक्ति हटाएं"):
-        new_n = st.text_input("नया नाम", value=name, key=f"rename_{name}")
-        if st.button("नाम बदलें"):
-            nn = new_n.strip()
-            if not nn:
-                st.warning("नाम खाली नहीं हो सकता।")
-            elif nn != name and (nn in data or nn in (HOME, ADMIN)):
-                st.warning("यह नाम पहले से है।")
-            elif nn != name:
-                data[nn] = data.pop(name)
-                save_data(data)
-                st.session_state.edit = None
-                goto(nn)
-
-        st.divider()
-        st.caption("इस व्यक्ति का पूरा हिसाब हट जाएगा।")
-        with st.popover(f"🗑️ {name} को हटाएं"):
-            st.write("पक्का हटाना है? यह वापस नहीं आएगा।")
-            if st.button("हाँ, हटा दो", key="del_person", type="primary"):
-                del data[name]
-                save_data(data)
-                st.session_state.edit = None
-                goto(HOME)
