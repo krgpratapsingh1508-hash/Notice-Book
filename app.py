@@ -403,23 +403,37 @@ def make_excel(name, entries):
 
 def make_pdf(name, entries):
     from fpdf import FPDF
-    from fpdf.enums import Align, TableCellFillMode
     from fpdf.fonts import FontFace
 
     fonts = ensure_fonts()
     rows, t_d, t_m, bal = ledger_rows(entries)
 
-    INDIGO, DEEP, LIGHT = (67, 56, 202), (49, 46, 129), (238, 242, 255)
-    GREEN, RED, GREY = (5, 150, 105), (225, 29, 72), (107, 112, 148)
-    top = GREEN if bal > 0 else RED if bal < 0 else INDIGO
+    INK = (20, 24, 40)          # मुख्य काला-नीला टेक्स्ट
+    MUTED = (90, 96, 120)       # हल्का टेक्स्ट
+    NAVY = (30, 41, 90)         # हेडर
+    RED = (176, 24, 44)         # गहरा लाल (देना / दिए)
+    GREEN = (4, 120, 87)        # गहरा हरा (लेना / मिले)
+    LINE = (200, 205, 225)
+    ZEBRA = (244, 246, 251)
+    TOTAL = (226, 232, 248)
+    WHITE = (255, 255, 255)
+
+    if bal > 0:
+        tint, accent = (236, 250, 242), GREEN
+        headline = f"आपको {inr(bal)} लेना है"
+    elif bal < 0:
+        tint, accent = (254, 241, 242), RED
+        headline = f"आपको {inr(bal)} देना है"
+    else:
+        tint, accent = (238, 242, 255), NAVY
+        headline = "हिसाब बराबर है"
 
     class PDF(FPDF):
         def footer(self):
             self.set_y(-14)
-            self.set_font("Hind", "", 8)
-            self.set_text_color(*GREY)
-            self.cell(0, 8, f"खाता बुक  •  {date.today().strftime('%d-%m-%Y')}", align="L")
-            self.set_x(-40)
+            self.set_font("Hind", "", 9)
+            self.set_text_color(*MUTED)
+            self.cell(100, 8, f"खाता बुक  •  {date.today().strftime('%d-%m-%Y')}")
             self.cell(0, 8, f"पृष्ठ {self.page_no()} / {{nb}}", align="R")
 
     pdf = PDF(orientation="P", unit="mm", format="A4")
@@ -431,83 +445,95 @@ def make_pdf(name, entries):
     pdf.set_margins(14, 14, 14)
     pdf.add_page()
 
-    # ---- ऊपर का रंगीन बैनर ----
-    pdf.set_fill_color(*INDIGO)
-    pdf.rect(0, 0, 210, 34, style="F")
-    pdf.set_xy(14, 8)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Hind", "B", 20)
-    pdf.cell(0, 9, "खाता बुक")
-    pdf.set_xy(14, 19)
-    pdf.set_font("Hind", "", 11)
-    pdf.cell(0, 6, f"हिसाब का विवरण  •  {date.today().strftime('%d-%m-%Y')}")
+    # ---- शीर्षक (सादा, सफ़ेद पेज) ----
+    pdf.set_text_color(*NAVY)
+    pdf.set_font("Hind", "B", 22)
+    pdf.cell(0, 10, "खाता बुक", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*MUTED)
+    pdf.set_font("Hind", "", 10.5)
+    pdf.cell(0, 6, f"तारीख: {date.today().strftime('%d-%m-%Y')}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_draw_color(*NAVY)
+    pdf.set_line_width(0.6)
+    pdf.line(14, pdf.get_y() + 2, 196, pdf.get_y() + 2)
 
-    # ---- नाम + बाकी राशि का कार्ड ----
-    pdf.set_y(42)
-    y = pdf.get_y()
-    pdf.set_fill_color(*top)
-    pdf.rect(14, y, 182, 30, style="F", round_corners=True)
+    # ---- सारांश बॉक्स: हल्की पृष्ठभूमि, गहरा टेक्स्ट ----
+    y = pdf.get_y() + 8
+    pdf.set_fill_color(*tint)
+    pdf.set_draw_color(*LINE)
+    pdf.set_line_width(0.3)
+    pdf.rect(14, y, 182, 32, style="DF", round_corners=True)
     pdf.set_xy(20, y + 4)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Hind", "B", 14)
-    pdf.cell(100, 7, name)
-    label = "आपको लेना है" if bal > 0 else "आपको देना है" if bal < 0 else "हिसाब बराबर"
-    pdf.set_xy(20, y + 12)
-    pdf.set_font("Hind", "", 10)
-    pdf.cell(100, 6, label)
-    pdf.set_xy(20, y + 18)
-    pdf.set_font("Hind", "B", 18)
-    pdf.cell(100, 9, inr(bal) if bal else "₹0")
-    # दाईं ओर छोटा सार
-    pdf.set_font("Hind", "", 9)
-    for k, txt in enumerate((f"कुल दिए: {inr(t_d)}", f"कुल मिले: {inr(t_m)}", f"कुल एंट्री: {len(rows)}")):
-        pdf.set_xy(120, y + 5 + k * 7.5)
-        pdf.cell(70, 6, txt, align="R")
+    pdf.set_text_color(*INK)
+    pdf.set_font("Hind", "B", 15)
+    pdf.cell(100, 8, name)
+    pdf.set_xy(20, y + 14)
+    pdf.set_text_color(*accent)
+    pdf.set_font("Hind", "B", 17)
+    pdf.cell(105, 10, headline)
+    pdf.set_font("Hind", "", 10.5)
+    pdf.set_text_color(*INK)
+    for k, txt in enumerate((f"कुल दिए:  {inr(t_d)}", f"कुल मिले:  {inr(t_m)}", f"कुल एंट्री:  {len(rows)}")):
+        pdf.set_xy(125, y + 4 + k * 8)
+        pdf.cell(65, 7, txt, align="R")
 
     # ---- तालिका ----
-    pdf.set_y(y + 38)
-    pdf.set_text_color(*DEEP)
-    pdf.set_font("Hind", "B", 12)
+    pdf.set_y(y + 40)
+    pdf.set_text_color(*NAVY)
+    pdf.set_font("Hind", "B", 13)
     pdf.cell(0, 8, "हिसाब की तालिका", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1)
 
-    head = FontFace(emphasis="BOLD", color=(255, 255, 255), fill_color=INDIGO)
-    pdf.set_font("Hind", "", 9.5)
-    pdf.set_text_color(31, 35, 64)
+    pdf.set_fill_color(*WHITE)
+    pdf.set_text_color(*INK)
+    pdf.set_font("Hind", "", 10.5)
+
+    def fs(color=INK, bold=False, fill=WHITE):
+        return FontFace(emphasis="BOLD" if bold else None, color=color, fill_color=fill)
+
+    def bal_text(v):
+        return inr(v) + (" (लेना)" if v > 0 else " (देना)" if v < 0 else "")
+
+    def bal_color(v):
+        return GREEN if v > 0 else RED if v < 0 else INK
+
     with pdf.table(
-        col_widths=(10, 24, 54, 30, 30, 34),
+        col_widths=(10, 25, 49, 29, 29, 40),
         text_align=("CENTER", "CENTER", "LEFT", "RIGHT", "RIGHT", "RIGHT"),
-        line_height=7,
+        line_height=7.5,
         borders_layout="HORIZONTAL_LINES",
-        cell_fill_color=(248, 249, 255),
-        cell_fill_mode=TableCellFillMode.ROWS,
         first_row_as_headings=True,
-        headings_style=head,
-        padding=(1.2, 2),
+        headings_style=FontFace(emphasis="BOLD", color=WHITE, fill_color=NAVY),
+        padding=(1.6, 2),
         repeat_headings=1,
     ) as table:
         h = table.row()
         for t in ("क्र.", "तारीख", "विवरण", "दिए (₹)", "मिले (₹)", "बाकी"):
             h.cell(t)
         for n, d, note, out, inn, run in rows:
+            bg = WHITE if n % 2 else ZEBRA
             r = table.row()
-            r.cell(str(n), style=FontFace(color=GREY))
-            r.cell(fmt_date(d))
-            r.cell(note or "—", style=FontFace(color=(91, 96, 133)))
-            r.cell(inr(out) if out else "—", style=FontFace(emphasis="BOLD", color=RED))
-            r.cell(inr(inn) if inn else "—", style=FontFace(emphasis="BOLD", color=GREEN))
-            tag = " (लेना)" if run > 0 else " (देना)" if run < 0 else ""
-            r.cell(inr(run) + tag,
-                   style=FontFace(emphasis="BOLD", color=GREEN if run > 0 else RED if run < 0 else GREY))
-        tot = FontFace(emphasis="BOLD", color=DEEP, fill_color=LIGHT)
+            r.cell(str(n), style=fs(MUTED, False, bg))
+            r.cell(fmt_date(d), style=fs(INK, False, bg))
+            r.cell(note or "—", style=fs(INK, False, bg))
+            r.cell(inr(out) if out else "—", style=fs(RED if out else MUTED, bool(out), bg))
+            r.cell(inr(inn) if inn else "—", style=fs(GREEN if inn else MUTED, bool(inn), bg))
+            r.cell(bal_text(run), style=fs(bal_color(run), True, bg))
         r = table.row()
-        r.cell("कुल", colspan=3, align="L", style=tot)
-        r.cell(inr(t_d), style=FontFace(emphasis="BOLD", color=RED, fill_color=LIGHT))
-        r.cell(inr(t_m), style=FontFace(emphasis="BOLD", color=GREEN, fill_color=LIGHT))
-        tag = " (लेना)" if bal > 0 else " (देना)" if bal < 0 else ""
-        r.cell(inr(bal) + tag,
-               style=FontFace(emphasis="BOLD", color=GREEN if bal > 0 else RED if bal < 0 else GREY,
-                              fill_color=LIGHT))
+        r.cell("कुल", colspan=3, align="L", style=fs(NAVY, True, TOTAL))
+        r.cell(inr(t_d), style=fs(RED, True, TOTAL))
+        r.cell(inr(t_m), style=fs(GREEN, True, TOTAL))
+        r.cell(bal_text(bal), style=fs(bal_color(bal), True, TOTAL))
+
+    # ---- समझने के लिए छोटा नोट ----
+    pdf.ln(5)
+    pdf.set_x(14)
+    pdf.set_text_color(*MUTED)
+    pdf.set_font("Hind", "", 9.5)
+    pdf.multi_cell(
+        182, 5.5,
+        "दिए = आपने दिए  |  मिले = आपको मिले\n"
+        "बाकी (लेना) = सामने वाले से आपको लेना है  |  बाकी (देना) = आपको सामने वाले को देना है",
+    )
 
     return bytes(pdf.output())
 
