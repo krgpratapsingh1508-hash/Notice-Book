@@ -1,9 +1,10 @@
 import html
+import io
 import json
 import os
+import urllib.request
 from datetime import date, datetime
 
-import pandas as pd
 import streamlit as st
 
 DATA_FILE = "khata.json"
@@ -263,6 +264,254 @@ def ledger_html(entries):
     )
 
 
+# ---------- Excel / PDF बनाने वाले फ़ंक्शन ----------
+FONT_DIR = "khata_fonts"
+FONT_URLS = {
+    "Hind-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/hind/Hind-Regular.ttf",
+    "Hind-Bold.ttf": "https://github.com/google/fonts/raw/main/ofl/hind/Hind-Bold.ttf",
+}
+
+
+def ensure_fonts():
+    """हिंदी फ़ॉन्ट (Hind) एक बार डाउनलोड होकर khata_fonts/ में रहता है।"""
+    os.makedirs(FONT_DIR, exist_ok=True)
+    paths = {}
+    for fname, url in FONT_URLS.items():
+        path = os.path.join(FONT_DIR, fname)
+        if not os.path.exists(path) or os.path.getsize(path) < 10000:
+            urllib.request.urlretrieve(url, path)
+        paths[fname] = path
+    return paths
+
+
+def ledger_rows(entries):
+    """(क्र., तारीख, विवरण, दिए, मिले, बाकी) की सूची + कुल।"""
+    run, t_d, t_m, rows = 0.0, 0.0, 0.0, []
+    for i, e in enumerate(entries, 1):
+        a = e["amount"]
+        if e["type"] == "diya":
+            run += a
+            t_d += a
+        else:
+            run -= a
+            t_m += a
+        rows.append((i, e["date"], e["note"], a if e["type"] == "diya" else None,
+                     a if e["type"] == "mila" else None, run))
+    return rows, t_d, t_m, run
+
+
+def make_excel(name, entries):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    rows, t_d, t_m, bal = ledger_rows(entries)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "खाता"[:31]
+    ws.sheet_view.showGridLines = False
+
+    indigo = PatternFill("solid", fgColor="4338CA")
+    light = PatternFill("solid", fgColor="EEF2FF")
+    zebra = PatternFill("solid", fgColor="F8F9FF")
+    thin = Side(style="thin", color="E0E4F5")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    money = '"₹"#,##0.00'
+
+    ws.merge_cells("A1:F1")
+    ws["A1"] = f"📒 खाता बुक — {name}"
+    ws["A1"].font = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+    ws["A1"].fill = indigo
+    ws["A1"].alignment = Alignment(vertical="center", indent=1)
+    ws.row_dimensions[1].height = 30
+
+    ws.merge_cells("A2:F2")
+    if bal > 0:
+        status = f"आपको लेना है: {inr(bal)}"
+    elif bal < 0:
+        status = f"आपको देना है: {inr(bal)}"
+    else:
+        status = "हिसाब बराबर"
+    ws["A2"] = f"{status}   |   रिपोर्ट की तारीख: {date.today().strftime('%d-%m-%Y')}"
+    ws["A2"].font = Font(size=11, bold=True, color="312E81")
+    ws["A2"].fill = light
+    ws["A2"].alignment = Alignment(vertical="center", indent=1)
+    ws.row_dimensions[2].height = 22
+
+    heads = ["क्र.", "तारीख", "विवरण", "दिए (₹)", "मिले (₹)", "बाकी (₹)"]
+    for c, h in enumerate(heads, 1):
+        cell = ws.cell(row=4, column=c, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = indigo
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center" if c < 3 else "right" if c > 3 else "left",
+                                   vertical="center")
+    ws.row_dimensions[4].height = 22
+
+    r = 5
+    for n, d, note, out, inn, run in rows:
+        try:
+            dval = date.fromisoformat(d)
+        except ValueError:
+            dval = d
+        vals = [n, dval, note or "", out, inn, run]
+        for c, v in enumerate(vals, 1):
+            cell = ws.cell(row=r, column=c, value=v)
+            cell.border = border
+            if n % 2 == 0:
+                cell.fill = zebra
+        ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=2).number_format = "DD-MM-YYYY"
+        ws.cell(row=r, column=2).alignment = Alignment(horizontal="center")
+        ws.cell(row=r, column=3).alignment = Alignment(wrap_text=True, vertical="top")
+        for c in (4, 5, 6):
+            ws.cell(row=r, column=c).number_format = money
+            ws.cell(row=r, column=c).alignment = Alignment(horizontal="right")
+        ws.cell(row=r, column=4).font = Font(color="E11D48", bold=True)
+        ws.cell(row=r, column=5).font = Font(color="059669", bold=True)
+        ws.cell(row=r, column=6).font = Font(
+            bold=True, color="059669" if run > 0 else "E11D48" if run < 0 else "000000")
+        r += 1
+
+    ws.cell(row=r, column=1, value="कुल")
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+    ws.cell(row=r, column=4, value=t_d)
+    ws.cell(row=r, column=5, value=t_m)
+    ws.cell(row=r, column=6, value=bal)
+    for c in range(1, 7):
+        cell = ws.cell(row=r, column=c)
+        cell.fill = light
+        cell.font = Font(bold=True, color="312E81")
+        cell.border = Border(top=Side(style="medium", color="4338CA"), bottom=thin, left=thin, right=thin)
+        if c >= 4:
+            cell.number_format = money
+            cell.alignment = Alignment(horizontal="right")
+    ws.cell(row=r + 1, column=6, value="(+) लेना / (−) देना").font = Font(size=9, italic=True, color="6B7094")
+    ws.cell(row=r + 1, column=6).alignment = Alignment(horizontal="right")
+
+    for col, w in zip("ABCDEF", (7, 13, 38, 15, 15, 16)):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A5"
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def make_pdf(name, entries):
+    from fpdf import FPDF
+    from fpdf.enums import Align, TableCellFillMode
+    from fpdf.fonts import FontFace
+
+    fonts = ensure_fonts()
+    rows, t_d, t_m, bal = ledger_rows(entries)
+
+    INDIGO, DEEP, LIGHT = (67, 56, 202), (49, 46, 129), (238, 242, 255)
+    GREEN, RED, GREY = (5, 150, 105), (225, 29, 72), (107, 112, 148)
+    top = GREEN if bal > 0 else RED if bal < 0 else INDIGO
+
+    class PDF(FPDF):
+        def footer(self):
+            self.set_y(-14)
+            self.set_font("Hind", "", 8)
+            self.set_text_color(*GREY)
+            self.cell(0, 8, f"खाता बुक  •  {date.today().strftime('%d-%m-%Y')}", align="L")
+            self.set_x(-40)
+            self.cell(0, 8, f"पृष्ठ {self.page_no()} / {{nb}}", align="R")
+
+    pdf = PDF(orientation="P", unit="mm", format="A4")
+    pdf.add_font("Hind", "", fonts["Hind-Regular.ttf"])
+    pdf.add_font("Hind", "B", fonts["Hind-Bold.ttf"])
+    pdf.set_text_shaping(True)  # देवनागरी मात्राएँ सही जुड़ें (uharfbuzz चाहिए)
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(True, margin=18)
+    pdf.set_margins(14, 14, 14)
+    pdf.add_page()
+
+    # ---- ऊपर का रंगीन बैनर ----
+    pdf.set_fill_color(*INDIGO)
+    pdf.rect(0, 0, 210, 34, style="F")
+    pdf.set_xy(14, 8)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Hind", "B", 20)
+    pdf.cell(0, 9, "खाता बुक")
+    pdf.set_xy(14, 19)
+    pdf.set_font("Hind", "", 11)
+    pdf.cell(0, 6, f"हिसाब का विवरण  •  {date.today().strftime('%d-%m-%Y')}")
+
+    # ---- नाम + बाकी राशि का कार्ड ----
+    pdf.set_y(42)
+    y = pdf.get_y()
+    pdf.set_fill_color(*top)
+    pdf.rect(14, y, 182, 30, style="F", round_corners=True)
+    pdf.set_xy(20, y + 4)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Hind", "B", 14)
+    pdf.cell(100, 7, name)
+    label = "आपको लेना है" if bal > 0 else "आपको देना है" if bal < 0 else "हिसाब बराबर"
+    pdf.set_xy(20, y + 12)
+    pdf.set_font("Hind", "", 10)
+    pdf.cell(100, 6, label)
+    pdf.set_xy(20, y + 18)
+    pdf.set_font("Hind", "B", 18)
+    pdf.cell(100, 9, inr(bal) if bal else "₹0")
+    # दाईं ओर छोटा सार
+    pdf.set_font("Hind", "", 9)
+    for k, txt in enumerate((f"कुल दिए: {inr(t_d)}", f"कुल मिले: {inr(t_m)}", f"कुल एंट्री: {len(rows)}")):
+        pdf.set_xy(120, y + 5 + k * 7.5)
+        pdf.cell(70, 6, txt, align="R")
+
+    # ---- तालिका ----
+    pdf.set_y(y + 38)
+    pdf.set_text_color(*DEEP)
+    pdf.set_font("Hind", "B", 12)
+    pdf.cell(0, 8, "हिसाब की तालिका", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+    head = FontFace(emphasis="BOLD", color=(255, 255, 255), fill_color=INDIGO)
+    pdf.set_font("Hind", "", 9.5)
+    pdf.set_text_color(31, 35, 64)
+    with pdf.table(
+        col_widths=(10, 24, 54, 30, 30, 34),
+        text_align=("CENTER", "CENTER", "LEFT", "RIGHT", "RIGHT", "RIGHT"),
+        line_height=7,
+        borders_layout="HORIZONTAL_LINES",
+        cell_fill_color=(248, 249, 255),
+        cell_fill_mode=TableCellFillMode.ROWS,
+        first_row_as_headings=True,
+        headings_style=head,
+        padding=(1.2, 2),
+        repeat_headings=1,
+    ) as table:
+        h = table.row()
+        for t in ("क्र.", "तारीख", "विवरण", "दिए (₹)", "मिले (₹)", "बाकी"):
+            h.cell(t)
+        for n, d, note, out, inn, run in rows:
+            r = table.row()
+            r.cell(str(n), style=FontFace(color=GREY))
+            r.cell(fmt_date(d))
+            r.cell(note or "—", style=FontFace(color=(91, 96, 133)))
+            r.cell(inr(out) if out else "—", style=FontFace(emphasis="BOLD", color=RED))
+            r.cell(inr(inn) if inn else "—", style=FontFace(emphasis="BOLD", color=GREEN))
+            tag = " (लेना)" if run > 0 else " (देना)" if run < 0 else ""
+            r.cell(inr(run) + tag,
+                   style=FontFace(emphasis="BOLD", color=GREEN if run > 0 else RED if run < 0 else GREY))
+        tot = FontFace(emphasis="BOLD", color=DEEP, fill_color=LIGHT)
+        r = table.row()
+        r.cell("कुल", colspan=3, align="L", style=tot)
+        r.cell(inr(t_d), style=FontFace(emphasis="BOLD", color=RED, fill_color=LIGHT))
+        r.cell(inr(t_m), style=FontFace(emphasis="BOLD", color=GREEN, fill_color=LIGHT))
+        tag = " (लेना)" if bal > 0 else " (देना)" if bal < 0 else ""
+        r.cell(inr(bal) + tag,
+               style=FontFace(emphasis="BOLD", color=GREEN if bal > 0 else RED if bal < 0 else GREY,
+                              fill_color=LIGHT))
+
+    return bytes(pdf.output())
+
+
 def goto(target):
     st.session_state.pending_nav = target
     st.rerun()
@@ -509,25 +758,32 @@ else:
                     st.session_state.edit = None
                     st.rerun()
 
-        # ---- CSV ----
-        run, rows = 0.0, []
-        for e in entries:
-            run += e["amount"] if e["type"] == "diya" else -e["amount"]
-            rows.append(
-                {
-                    "तारीख": e["date"],
-                    "प्रकार": "दिए" if e["type"] == "diya" else "मिले",
-                    "राशि": e["amount"],
-                    "नोट": e["note"],
-                    "बाकी": run,
-                }
-            )
-        st.download_button(
-            "⬇️ इस खाते की CSV",
-            pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"{name}_khata.csv",
-            mime="text/csv",
+        # ---- Excel / PDF ----
+        st.write("")
+        d1, d2 = st.columns(2)
+        safe = "".join(ch if ch.isalnum() or ch in " _-" else "_" for ch in name).strip() or "khata"
+        d1.download_button(
+            "📊 Excel डाउनलोड",
+            make_excel(name, entries),
+            file_name=f"{safe}_khata.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
         )
+        try:
+            pdf_bytes = make_pdf(name, entries)
+        except Exception as ex:  # फ़ॉन्ट/लाइब्रेरी न मिले तो बाकी ऐप चलता रहे
+            pdf_bytes = None
+            d2.button("📄 PDF डाउनलोड", disabled=True, use_container_width=True)
+            st.caption(f"PDF नहीं बन पाई: {ex}")
+        if pdf_bytes:
+            d2.download_button(
+                "📄 PDF डाउनलोड",
+                pdf_bytes,
+                file_name=f"{safe}_khata.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+            )
 
     # ---- व्यक्ति की सेटिंग ----
     with st.expander("⚙️ नाम बदलें / व्यक्ति हटाएं"):
