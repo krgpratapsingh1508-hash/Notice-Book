@@ -7,66 +7,170 @@ import pandas as pd
 import streamlit as st
 
 DATA_FILE = "khata.json"
-HOME = "🏠 Sabka Hisab"
-KIND_LABELS = {"diya": "🔴 Maine diye", "mila": "🟢 Mujhe mile"}
+HOME = "🏠 सबका हिसाब"
+KIND_LABELS = {"diya": "🔴 मैंने दिए", "mila": "🟢 मुझे मिले"}
 
-st.set_page_config(page_title="Khata Book", page_icon="📒", layout="centered")
+st.set_page_config(page_title="खाता बुक", page_icon="📒", layout="centered")
 
 CSS = """
 <style>
-.block-container {max-width: 760px; padding-top: 2rem;}
-.hero {padding: 22px 24px; border-radius: 20px; color: #fff; margin-bottom: 18px;
-       box-shadow: 0 6px 18px rgba(0,0,0,.15);}
-.hero.get  {background: linear-gradient(135deg, #0f9b6c, #0a6b4d);}
-.hero.owe  {background: linear-gradient(135deg, #e5484d, #a61e4d);}
-.hero.even {background: linear-gradient(135deg, #4f6df5, #3b4cca);}
-.hero .h-name {font-size: 1.05rem; opacity: .9;}
-.hero .h-label {font-size: .9rem; opacity: .85; margin-top: 10px;}
-.hero .h-amt {font-size: 2.4rem; font-weight: 800; line-height: 1.1;}
-.hero .h-sub {display: flex; gap: 22px; margin-top: 14px; font-size: .85rem; opacity: .9;}
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap');
 
-.stat {padding: 16px 18px; border-radius: 16px; border: 1px solid rgba(128,128,128,.25);
-       background: rgba(128,128,128,.07);}
-.stat .s-label {font-size: .8rem; opacity: .7;}
-.stat .s-val {font-size: 1.6rem; font-weight: 800;}
-.stat.green .s-val {color: #2fb67c;}
-.stat.red .s-val {color: #e5484d;}
+/* ---------- पीछे का बैकग्राउंड ---------- */
+.stApp {
+    background:
+        radial-gradient(1100px 560px at 8% -10%, #dbe4ff 0%, transparent 60%),
+        radial-gradient(900px 500px at 100% 0%, #fde2f3 0%, transparent 55%),
+        radial-gradient(1000px 600px at 50% 115%, #d5f5ea 0%, transparent 55%),
+        #f6f7fd;
+    background-attachment: fixed;
+}
+.stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp button,
+.stApp input, .stApp textarea, .hero, .stat, .pcard, .tbl-wrap {
+    font-family: 'Poppins', 'Noto Sans Devanagari', sans-serif;
+}
+.block-container {max-width: 820px; padding-top: 2.2rem; padding-bottom: 4rem;}
+footer {visibility: hidden;}
 
-.entry {display: flex; justify-content: space-between; align-items: center;
-        padding: 12px 16px; border-radius: 14px; margin-bottom: 4px;
-        border: 1px solid rgba(128,128,128,.25); border-left: 6px solid;
-        background: rgba(128,128,128,.06);}
-.entry.diya {border-left-color: #e5484d;}
-.entry.mila {border-left-color: #2fb67c;}
-.entry .e-date {font-weight: 600; font-size: .95rem;}
-.entry .e-note {font-size: .85rem; opacity: .7; margin-top: 2px;}
-.entry .e-amt {font-weight: 800; font-size: 1.15rem; text-align: right;}
-.entry.diya .e-amt {color: #e5484d;}
-.entry.mila .e-amt {color: #2fb67c;}
-.entry .e-bal {font-size: .75rem; opacity: .65; text-align: right; margin-top: 2px;}
+/* ---------- हल्की थीम ज़बरदस्ती (config फ़ाइल के बिना) ---------- */
+:root {color-scheme: light;}
+[data-testid="stHeader"] {background: transparent;}
+.stApp, [data-testid="stSidebar"] {color: #1f2340;}
+.stApp [data-testid="stMarkdownContainer"] p, .stApp label, .stApp label p,
+.stApp [data-testid="stWidgetLabel"] p, .stApp [data-testid="stCaptionContainer"],
+.stApp [data-testid="stExpander"] summary, .stApp [data-testid="stExpander"] summary p,
+.stApp [role="radiogroup"] p, .stApp h2, .stApp h3 {color: #1f2340 !important;}
+.stApp input, .stApp textarea {color: #1f2340 !important; -webkit-text-fill-color: #1f2340;}
+.stApp [data-baseweb="input"], .stApp [data-baseweb="base-input"],
+.stApp [data-baseweb="textarea"], .stApp [data-baseweb="select"] > div {
+    background: #fff !important; border-color: rgba(99,102,241,.25) !important;
+}
+.stApp [data-baseweb="select"] div {color: #1f2340 !important;}
+.stApp button[data-testid="stBaseButton-secondary"],
+.stApp button[data-testid="stBaseButton-secondaryFormSubmit"],
+.stApp [data-testid="stPopoverButton"] {background: #fff; color: #1f2340;}
+.stApp button[data-testid^="stBaseButton-primary"] p {color: #fff !important;}
+[data-testid="stFileUploaderDropzone"] {background: #fff;}
+[data-testid="stFileUploaderDropzone"] * {color: #1f2340 !important;}
 
-.pcard {display: flex; justify-content: space-between; align-items: center;
-        padding: 14px 18px; border-radius: 16px; margin-bottom: 4px;
-        border: 1px solid rgba(128,128,128,.25); border-left: 6px solid #4f6df5;
-        background: rgba(128,128,128,.06);}
-.pcard.get {border-left-color: #2fb67c;}
-.pcard.owe {border-left-color: #e5484d;}
-.pcard .p-name {font-weight: 700; font-size: 1.05rem;}
-.pcard .p-status {font-size: .8rem; opacity: .7;}
-.pcard .p-amt {font-weight: 800; font-size: 1.2rem; text-align: right;}
-.pcard.get .p-amt {color: #2fb67c;}
-.pcard.owe .p-amt {color: #e5484d;}
+/* ---------- साइडबार ---------- */
+[data-testid="stSidebar"] {
+    background: rgba(255,255,255,.72);
+    backdrop-filter: blur(14px);
+    border-right: 1px solid rgba(99,102,241,.15);
+}
+[data-testid="stSidebar"] h1 {
+    background: linear-gradient(90deg, #4338ca, #db2777);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-weight: 800;
+}
+
+/* ---------- शीर्षक ---------- */
+.stApp h1 {
+    background: linear-gradient(90deg, #4338ca, #db2777);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-weight: 800; letter-spacing: -.5px;
+}
+.stApp h3 {color: #312e81; font-weight: 700;}
+
+/* ---------- बटन ---------- */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+    border-radius: 12px; font-weight: 600; border: 1px solid rgba(99,102,241,.3);
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
+    transform: translateY(-1px); box-shadow: 0 6px 16px rgba(79,70,229,.2);
+    border-color: #6366f1; color: #4338ca;
+}
+button[data-testid="stBaseButton-primary"], button[data-testid="stBaseButton-primaryFormSubmit"] {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; border: none;
+}
+button[data-testid="stBaseButton-primary"]:hover, button[data-testid="stBaseButton-primaryFormSubmit"]:hover {
+    color: #fff; box-shadow: 0 8px 20px rgba(124,58,237,.35);
+}
+
+/* ---------- फॉर्म / एक्सपैंडर ---------- */
+[data-testid="stExpander"], [data-testid="stForm"] {
+    background: rgba(255,255,255,.8); border-radius: 16px;
+    border: 1px solid rgba(99,102,241,.18); box-shadow: 0 6px 20px rgba(67,56,202,.07);
+}
+
+/* ---------- ऊपर का बड़ा कार्ड ---------- */
+.hero {position: relative; overflow: hidden; padding: 24px 26px; border-radius: 22px;
+       color: #fff; margin-bottom: 20px; box-shadow: 0 14px 34px rgba(0,0,0,.18);}
+.hero::after {content: ""; position: absolute; right: -50px; top: -60px; width: 200px; height: 200px;
+              border-radius: 50%; background: rgba(255,255,255,.14);}
+.hero::before {content: ""; position: absolute; right: 70px; bottom: -80px; width: 170px; height: 170px;
+               border-radius: 50%; background: rgba(255,255,255,.09);}
+.hero.get  {background: linear-gradient(135deg, #10b981, #047857);}
+.hero.owe  {background: linear-gradient(135deg, #fb7185, #be123c);}
+.hero.even {background: linear-gradient(135deg, #6366f1, #4338ca);}
+.hero .h-name {font-size: 1.1rem; font-weight: 600; opacity: .95;}
+.hero .h-label {font-size: .9rem; opacity: .85; margin-top: 12px;}
+.hero .h-amt {font-size: 2.7rem; font-weight: 800; line-height: 1.1;}
+.hero .h-sub {display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; position: relative; z-index: 1;}
+.hero .h-sub span {background: rgba(255,255,255,.2); padding: 5px 12px; border-radius: 999px;
+                   font-size: .8rem; font-weight: 500;}
+
+/* ---------- होम के बॉक्स ---------- */
+.stat {padding: 18px 20px; border-radius: 18px; background: #fff;
+       box-shadow: 0 8px 24px rgba(67,56,202,.1); border-top: 5px solid;}
+.stat.green {border-top-color: #10b981;}
+.stat.red {border-top-color: #f43f5e;}
+.stat .s-label {font-size: .82rem; color: #6b7094; font-weight: 500;}
+.stat .s-val {font-size: 1.8rem; font-weight: 800;}
+.stat.green .s-val {color: #059669;}
+.stat.red .s-val {color: #e11d48;}
+
+.pcard {display: flex; justify-content: space-between; align-items: center; background: #fff;
+        padding: 15px 20px; border-radius: 16px; margin-bottom: 4px;
+        box-shadow: 0 6px 18px rgba(67,56,202,.08); border-left: 6px solid #6366f1;}
+.pcard.get {border-left-color: #10b981;}
+.pcard.owe {border-left-color: #f43f5e;}
+.pcard .p-name {font-weight: 700; font-size: 1.05rem; color: #1f2340;}
+.pcard .p-status {font-size: .8rem; color: #6b7094;}
+.pcard .p-amt {font-weight: 800; font-size: 1.2rem; text-align: right; color: #6b7094;}
+.pcard.get .p-amt {color: #059669;}
+.pcard.owe .p-amt {color: #e11d48;}
+
+/* ---------- हिसाब की तालिका ---------- */
+.tbl-wrap {background: #fff; border-radius: 20px; overflow-x: auto;
+           box-shadow: 0 12px 32px rgba(67,56,202,.13); border: 1px solid rgba(99,102,241,.15);
+           margin-bottom: 14px;}
+table.ledger {width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 560px;
+              font-variant-numeric: tabular-nums;}
+.ledger thead th {background: linear-gradient(135deg, #4338ca, #7c3aed); color: #fff;
+                  padding: 13px 14px; text-align: left; font-weight: 600; white-space: nowrap;}
+.ledger th.r, .ledger td.r {text-align: right;}
+.ledger tbody td {padding: 11px 14px; border-bottom: 1px solid #eef0fb; color: #1f2340;}
+.ledger tbody tr:nth-child(even) {background: #f8f9ff;}
+.ledger tbody tr:hover {background: #eef2ff;}
+.ledger td.sn {color: #8b8fb0; font-weight: 600; width: 46px;}
+.ledger td.note {color: #5b6085; max-width: 220px; word-break: break-word;}
+.ledger td.out {color: #e11d48; font-weight: 700;}
+.ledger td.in {color: #059669; font-weight: 700;}
+.ledger td.bal {font-weight: 700; white-space: nowrap;}
+.ledger td.bal.get {color: #059669;}
+.ledger td.bal.owe {color: #e11d48;}
+.tag {font-size: .68rem; padding: 2px 8px; border-radius: 999px; margin-left: 6px; font-weight: 600;}
+.tag.get {background: #d1fae5; color: #047857;}
+.tag.owe {background: #ffe4e6; color: #be123c;}
+.ledger tfoot td {background: #eef2ff; font-weight: 800; padding: 13px 14px;
+                  border-top: 2px solid #c7d2fe; color: #312e81;}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
 
-# ---------- Helpers ----------
+# ---------- सहायक फ़ंक्शन ----------
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                d = json.load(f)
+            for v in d.values():
+                v.sort(key=lambda e: e["date"])
+            return d
         except (json.JSONDecodeError, OSError):
             return {}
     return {}
@@ -78,7 +182,7 @@ def save_data(data):
 
 
 def balance(entries):
-    """Positive = mujhe lena hai, Negative = mujhe dena hai."""
+    """धनात्मक = मुझे लेना है, ऋणात्मक = मुझे देना है।"""
     return sum(e["amount"] if e["type"] == "diya" else -e["amount"] for e in entries)
 
 
@@ -89,7 +193,7 @@ def totals(entries):
 
 
 def inr(x):
-    """Indian style grouping: 1,23,456"""
+    """भारतीय तरीका: 1,23,456"""
     x = abs(x)
     whole, frac = f"{x:.2f}".split(".")
     if len(whole) > 3:
@@ -106,7 +210,7 @@ def inr(x):
 
 def fmt_date(iso):
     try:
-        return datetime.fromisoformat(iso).strftime("%d %b %Y")
+        return datetime.fromisoformat(iso).strftime("%d-%m-%Y")
     except ValueError:
         return iso
 
@@ -115,12 +219,56 @@ def esc(s):
     return html.escape(str(s))
 
 
+def sort_entries(entries):
+    entries.sort(key=lambda e: e["date"])  # तारीख के हिसाब से क्रम (बराबर तारीख में पुराना पहले)
+
+
+def bal_cell(b):
+    if b > 0:
+        return "get", f'{inr(b)}<span class="tag get">लेना</span>'
+    if b < 0:
+        return "owe", f'{inr(b)}<span class="tag owe">देना</span>'
+    return "", "₹0"
+
+
+def ledger_html(entries):
+    rows, run, t_d, t_m = [], 0.0, 0.0, 0.0
+    for i, e in enumerate(entries):
+        a = e["amount"]
+        if e["type"] == "diya":
+            run += a
+            t_d += a
+            out, inn = inr(a), "—"
+        else:
+            run -= a
+            t_m += a
+            out, inn = "—", inr(a)
+        cls, cell = bal_cell(run)
+        note = esc(e["note"]) if e["note"] else "—"
+        rows.append(
+            f'<tr><td class="sn">{i + 1}</td><td>{fmt_date(e["date"])}</td>'
+            f'<td class="note">{note}</td><td class="r out">{out}</td>'
+            f'<td class="r in">{inn}</td><td class="r bal {cls}">{cell}</td></tr>'
+        )
+    fcls, fcell = bal_cell(run)
+    foot = (
+        f'<tr><td colspan="3">कुल</td><td class="r out">{inr(t_d)}</td>'
+        f'<td class="r in">{inr(t_m)}</td><td class="r bal {fcls}">{fcell}</td></tr>'
+    )
+    return (
+        '<div class="tbl-wrap"><table class="ledger"><thead><tr>'
+        '<th>क्र.</th><th>तारीख</th><th>विवरण</th>'
+        '<th class="r">दिए (₹)</th><th class="r">मिले (₹)</th><th class="r">बाकी</th>'
+        f'</tr></thead><tbody>{"".join(rows)}</tbody><tfoot>{foot}</tfoot></table></div>'
+    )
+
+
 def goto(target):
     st.session_state.pending_nav = target
     st.rerun()
 
 
-# ---------- State ----------
+# ---------- स्टेट ----------
 if "data" not in st.session_state:
     st.session_state.data = load_data()
 if "edit" not in st.session_state:
@@ -134,93 +282,96 @@ data = st.session_state.data
 if st.session_state.nav != HOME and st.session_state.nav not in data:
     st.session_state.nav = HOME
 
-# ---------- Sidebar ----------
-st.sidebar.title("📒 Khata Book")
+# ---------- साइडबार ----------
+st.sidebar.title("📒 खाता बुक")
 
 with st.sidebar.form("add_person", clear_on_submit=True):
-    new_name = st.text_input("Naya vyakti jodein", placeholder="Naam likhiye")
-    if st.form_submit_button("➕ Jodein", use_container_width=True):
+    new_name = st.text_input("नया व्यक्ति जोड़ें", placeholder="नाम लिखिए")
+    if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
         name = new_name.strip()
         if not name:
-            st.sidebar.warning("Naam likhiye.")
+            st.sidebar.warning("नाम लिखिए।")
         elif name in data or name == HOME:
-            st.sidebar.warning("Ye naam pehle se hai.")
+            st.sidebar.warning("यह नाम पहले से है।")
         else:
             data[name] = []
             save_data(data)
             goto(name)
 
 choice = st.sidebar.radio(
-    "Kiska khata?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
+    "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
 )
 
 st.sidebar.divider()
 st.sidebar.download_button(
-    "💾 Backup download",
+    "💾 बैकअप डाउनलोड",
     data=json.dumps(data, ensure_ascii=False, indent=2),
     file_name="khata_backup.json",
     mime="application/json",
     use_container_width=True,
 )
-uploaded = st.sidebar.file_uploader("Backup wapas daalein", type="json")
-if uploaded is not None and st.sidebar.button("♻️ Restore karein", use_container_width=True):
+uploaded = st.sidebar.file_uploader("बैकअप वापस डालें", type="json")
+if uploaded is not None and st.sidebar.button("♻️ रिस्टोर करें", use_container_width=True):
     try:
-        st.session_state.data = json.load(uploaded)
-        save_data(st.session_state.data)
+        restored = json.load(uploaded)
+        for v in restored.values():
+            sort_entries(v)
+        st.session_state.data = restored
+        save_data(restored)
         goto(HOME)
-    except json.JSONDecodeError:
-        st.sidebar.error("File sahi nahi hai.")
+    except (json.JSONDecodeError, AttributeError, KeyError):
+        st.sidebar.error("फ़ाइल सही नहीं है।")
 
 # =====================================================
-# HOME PAGE
+# होम पेज
 # =====================================================
 if choice == HOME:
-    st.title("📒 Sabka Hisab")
+    st.title("📒 सबका हिसाब")
 
     if not data:
-        st.info("Abhi koi vyakti nahi hai. Sidebar se naya naam jodein.")
+        st.info("अभी कोई व्यक्ति नहीं है। साइडबार से नया नाम जोड़ें।")
     else:
         to_receive = sum(max(balance(e), 0) for e in data.values())
         to_pay = sum(max(-balance(e), 0) for e in data.values())
 
         c1, c2 = st.columns(2)
         c1.markdown(
-            f'<div class="stat green"><div class="s-label">Kul lena hai</div>'
+            f'<div class="stat green"><div class="s-label">कुल लेना है</div>'
             f'<div class="s-val">{inr(to_receive)}</div></div>',
             unsafe_allow_html=True,
         )
         c2.markdown(
-            f'<div class="stat red"><div class="s-label">Kul dena hai</div>'
+            f'<div class="stat red"><div class="s-label">कुल देना है</div>'
             f'<div class="s-val">{inr(to_pay)}</div></div>',
             unsafe_allow_html=True,
         )
 
         st.write("")
-        q = st.text_input("🔍 Naam khojein", placeholder="Naam likhiye...")
+        q = st.text_input("🔍 नाम खोजें", placeholder="नाम लिखिए...")
 
         people = [n for n in sorted(data, key=str.lower) if q.lower() in n.lower()]
         if not people:
-            st.caption("Koi naam nahi mila.")
+            st.caption("कोई नाम नहीं मिला।")
         for n in people:
             b = balance(data[n])
             if b > 0:
-                cls, status = "get", "Aapko lena hai"
+                cls, status = "get", "आपको लेना है"
             elif b < 0:
-                cls, status = "owe", "Aapko dena hai"
+                cls, status = "owe", "आपको देना है"
             else:
-                cls, status = "", "Hisab barabar ✅"
+                cls, status = "", "हिसाब बराबर ✅"
             col_card, col_btn = st.columns([5, 1], vertical_alignment="center")
             col_card.markdown(
                 f'<div class="pcard {cls}"><div><div class="p-name">{esc(n)}</div>'
-                f'<div class="p-status">{status} • {len(data[n])} entry</div></div>'
+                f'<div class="p-status">{status} • {len(data[n])} एंट्री</div></div>'
                 f'<div class="p-amt">{inr(b) if b else "—"}</div></div>',
                 unsafe_allow_html=True,
             )
-            if col_btn.button("Kholein", key=f"open_{n}", use_container_width=True):
+            if col_btn.button("खोलें", key=f"open_{n}", use_container_width=True):
                 goto(n)
 
 # =====================================================
-# PERSON PAGE
+# व्यक्ति का पेज
 # =====================================================
 else:
     name = choice
@@ -229,34 +380,35 @@ else:
     t_diya, t_mila = totals(entries)
 
     if b > 0:
-        cls, label = "get", "Aapko lena hai"
+        cls, label = "get", "आपको लेना है"
     elif b < 0:
-        cls, label = "owe", "Aapko dena hai"
+        cls, label = "owe", "आपको देना है"
     else:
-        cls, label = "even", "Hisab barabar ✅"
+        cls, label = "even", "हिसाब बराबर ✅"
 
     st.markdown(
         f'<div class="hero {cls}"><div class="h-name">👤 {esc(name)}</div>'
         f'<div class="h-label">{label}</div>'
         f'<div class="h-amt">{inr(b) if b else "₹0"}</div>'
-        f'<div class="h-sub"><span>🔴 Kul diye: {inr(t_diya)}</span>'
-        f'<span>🟢 Kul mile: {inr(t_mila)}</span></div></div>',
+        f'<div class="h-sub"><span>🔴 कुल दिए: {inr(t_diya)}</span>'
+        f'<span>🟢 कुल मिले: {inr(t_mila)}</span>'
+        f'<span>📄 {len(entries)} एंट्री</span></div></div>',
         unsafe_allow_html=True,
     )
 
-    # ---- Add entry ----
-    with st.expander("➕ Nayi entry", expanded=not entries):
+    # ---- नई एंट्री ----
+    with st.expander("➕ नई एंट्री", expanded=not entries):
         with st.form("add_entry", clear_on_submit=True):
             kind = st.radio(
-                "Kya hua?", list(KIND_LABELS), format_func=KIND_LABELS.get, horizontal=True
+                "क्या हुआ?", list(KIND_LABELS), format_func=KIND_LABELS.get, horizontal=True
             )
             c1, c2 = st.columns(2)
-            amount = c1.number_input("Rakam (₹)", min_value=0.0, step=10.0, format="%.2f")
-            when = c2.date_input("Tareekh", value=date.today())
-            note = st.text_input("Note (optional)", placeholder="Jaise: dukaan ka saman")
-            if st.form_submit_button("✅ Save karein", use_container_width=True):
+            amount = c1.number_input("राशि (₹)", min_value=0.0, step=10.0, format="%.2f")
+            when = c2.date_input("तारीख", value=date.today())
+            note = st.text_input("नोट (वैकल्पिक)", placeholder="जैसे: दुकान का सामान")
+            if st.form_submit_button("✅ सेव करें", use_container_width=True, type="primary"):
                 if amount <= 0:
-                    st.warning("Rakam 0 se zyada honi chahiye.")
+                    st.warning("राशि 0 से ज़्यादा होनी चाहिए।")
                 else:
                     entries.append(
                         {
@@ -266,44 +418,60 @@ else:
                             "note": note.strip(),
                         }
                     )
+                    sort_entries(entries)
                     save_data(data)
+                    st.session_state.pop(f"sel_{name}", None)
                     st.rerun()
 
-    # ---- List ----
-    st.subheader("📜 Hisab ki list")
+    # ---- तालिका ----
+    st.subheader("📜 हिसाब की तालिका")
 
     if not entries:
-        st.caption("Abhi koi entry nahi hai.")
+        st.caption("अभी कोई एंट्री नहीं है।")
     else:
-        flt = st.radio(
-            "Dikhayein",
-            ["Sab", "Diye", "Mile"],
-            horizontal=True,
-            label_visibility="collapsed",
-        )
+        st.markdown(ledger_html(entries), unsafe_allow_html=True)
 
-        # running balance (purani se nayi tak)
-        running, run_list = 0.0, []
-        for e in entries:
-            running += e["amount"] if e["type"] == "diya" else -e["amount"]
-            run_list.append(running)
+        # ---- बदलें / हटाएं ----
+        editing = st.session_state.edit
+        is_editing_here = bool(editing) and editing[0] == name and editing[1] < len(entries)
 
-        order = list(range(len(entries)))[::-1]  # nayi entry sabse upar
-        shown = 0
-        for i in order:
-            e = entries[i]
-            if flt == "Diye" and e["type"] != "diya":
-                continue
-            if flt == "Mile" and e["type"] != "mila":
-                continue
-            shown += 1
+        with st.expander("✏️ एंट्री बदलें / हटाएं", expanded=is_editing_here):
 
-            # ---- Edit mode ----
-            if st.session_state.edit == (name, i):
-                with st.form(f"edit_form_{i}"):
-                    st.markdown(f"**✏️ Entry #{i + 1} badlein**")
+            def label_for(i):
+                e = entries[i]
+                kind_txt = "दिए" if e["type"] == "diya" else "मिले"
+                txt = f"#{i + 1} • {fmt_date(e['date'])} • {kind_txt} {inr(e['amount'])}"
+                return txt + (f" • {e['note']}" if e["note"] else "")
+
+            default_idx = editing[1] if is_editing_here else 0
+            sel = st.selectbox(
+                "कौन सी एंट्री?",
+                list(range(len(entries))),
+                index=default_idx,
+                format_func=label_for,
+                key=f"sel_{name}",
+            )
+
+            b1, b2 = st.columns(2)
+            if b1.button("✏️ बदलें", use_container_width=True, key=f"editbtn_{name}"):
+                st.session_state.edit = (name, sel)
+                st.rerun()
+            with b2.popover("🗑️ हटाएं", use_container_width=True):
+                st.write("पक्का हटाना है?")
+                if st.button("हाँ, हटाओ", key=f"del_{name}", type="primary"):
+                    entries.pop(sel)
+                    save_data(data)
+                    st.session_state.edit = None
+                    st.session_state.pop(f"sel_{name}", None)
+                    st.rerun()
+
+            if is_editing_here:
+                i = editing[1]
+                e = entries[i]
+                with st.form(f"edit_form_{name}_{i}"):
+                    st.markdown(f"**✏️ एंट्री #{i + 1} बदलें**")
                     k = st.radio(
-                        "Kya hua?",
+                        "क्या हुआ?",
                         list(KIND_LABELS),
                         index=0 if e["type"] == "diya" else 1,
                         format_func=KIND_LABELS.get,
@@ -311,20 +479,20 @@ else:
                     )
                     c1, c2 = st.columns(2)
                     amt = c1.number_input(
-                        "Rakam (₹)", min_value=0.0, step=10.0, value=float(e["amount"]), format="%.2f"
+                        "राशि (₹)", min_value=0.0, step=10.0, value=float(e["amount"]), format="%.2f"
                     )
                     try:
                         dflt = date.fromisoformat(e["date"])
                     except ValueError:
                         dflt = date.today()
-                    dt = c2.date_input("Tareekh", value=dflt)
-                    nt = st.text_input("Note", value=e["note"])
-                    b1, b2 = st.columns(2)
-                    save = b1.form_submit_button("💾 Save", use_container_width=True)
-                    cancel = b2.form_submit_button("✖️ Cancel", use_container_width=True)
+                    dt = c2.date_input("तारीख", value=dflt)
+                    nt = st.text_input("नोट", value=e["note"])
+                    s1, s2 = st.columns(2)
+                    save = s1.form_submit_button("💾 सेव", use_container_width=True, type="primary")
+                    cancel = s2.form_submit_button("✖️ रद्द करें", use_container_width=True)
                 if save:
                     if amt <= 0:
-                        st.warning("Rakam 0 se zyada honi chahiye.")
+                        st.warning("राशि 0 से ज़्यादा होनी चाहिए।")
                     else:
                         entries[i] = {
                             "date": dt.isoformat(),
@@ -332,70 +500,44 @@ else:
                             "amount": float(amt),
                             "note": nt.strip(),
                         }
+                        sort_entries(entries)
                         save_data(data)
                         st.session_state.edit = None
+                        st.session_state.pop(f"sel_{name}", None)
                         st.rerun()
                 if cancel:
                     st.session_state.edit = None
                     st.rerun()
-                continue
 
-            # ---- Normal card ----
-            sign = "−" if e["type"] == "diya" else "+"
-            tag = "diya" if e["type"] == "diya" else "mila"
-            note_html = f'<div class="e-note">{esc(e["note"])}</div>' if e["note"] else ""
-            rb = run_list[i]
-            bal_txt = f"Baaki: {inr(rb)}" if rb else "Baaki: ₹0"
-            col_card, col_edit, col_del = st.columns([8, 1, 1], vertical_alignment="center")
-            col_card.markdown(
-                f'<div class="entry {tag}"><div><div class="e-date">{fmt_date(e["date"])}</div>'
-                f"{note_html}</div><div><div class=\"e-amt\">{sign} {inr(e['amount'])}</div>"
-                f'<div class="e-bal">{bal_txt}</div></div></div>',
-                unsafe_allow_html=True,
-            )
-            if col_edit.button("✏️", key=f"edit_{name}_{i}", help="Badlein"):
-                st.session_state.edit = (name, i)
-                st.rerun()
-            with col_del.popover("🗑️", help="Delete"):
-                st.write("Pakka delete karein?")
-                if st.button("Haan, delete", key=f"del_{name}_{i}", type="primary"):
-                    entries.pop(i)
-                    save_data(data)
-                    st.session_state.edit = None
-                    st.rerun()
-
-        if shown == 0:
-            st.caption("Is filter me koi entry nahi hai.")
-
-        # ---- CSV download ----
-        df = pd.DataFrame(
-            [
+        # ---- CSV ----
+        run, rows = 0.0, []
+        for e in entries:
+            run += e["amount"] if e["type"] == "diya" else -e["amount"]
+            rows.append(
                 {
-                    "Tareekh": e["date"],
-                    "Type": "Diya" if e["type"] == "diya" else "Mila",
-                    "Rakam": e["amount"],
-                    "Note": e["note"],
-                    "Baaki": run_list[i],
+                    "तारीख": e["date"],
+                    "प्रकार": "दिए" if e["type"] == "diya" else "मिले",
+                    "राशि": e["amount"],
+                    "नोट": e["note"],
+                    "बाकी": run,
                 }
-                for i, e in enumerate(entries)
-            ]
-        )
+            )
         st.download_button(
-            "⬇️ Is khate ki CSV",
-            df.to_csv(index=False).encode("utf-8-sig"),
+            "⬇️ इस खाते की CSV",
+            pd.DataFrame(rows).to_csv(index=False).encode("utf-8-sig"),
             file_name=f"{name}_khata.csv",
             mime="text/csv",
         )
 
-    # ---- Person settings ----
-    with st.expander("⚙️ Naam badlein / Vyakti hatayein"):
-        new_n = st.text_input("Naya naam", value=name, key=f"rename_{name}")
-        if st.button("Naam badlein"):
+    # ---- व्यक्ति की सेटिंग ----
+    with st.expander("⚙️ नाम बदलें / व्यक्ति हटाएं"):
+        new_n = st.text_input("नया नाम", value=name, key=f"rename_{name}")
+        if st.button("नाम बदलें"):
             nn = new_n.strip()
             if not nn:
-                st.warning("Naam khaali nahi ho sakta.")
+                st.warning("नाम खाली नहीं हो सकता।")
             elif nn != name and (nn in data or nn == HOME):
-                st.warning("Ye naam pehle se hai.")
+                st.warning("यह नाम पहले से है।")
             elif nn != name:
                 data[nn] = data.pop(name)
                 save_data(data)
@@ -403,10 +545,10 @@ else:
                 goto(nn)
 
         st.divider()
-        st.caption("Is vyakti ka poora hisab delete ho jayega.")
-        with st.popover(f"🗑️ {name} ko hatayein"):
-            st.write("Pakka hatana hai? Ye wapas nahi aayega.")
-            if st.button("Haan, hata do", key="del_person", type="primary"):
+        st.caption("इस व्यक्ति का पूरा हिसाब हट जाएगा।")
+        with st.popover(f"🗑️ {name} को हटाएं"):
+            st.write("पक्का हटाना है? यह वापस नहीं आएगा।")
+            if st.button("हाँ, हटा दो", key="del_person", type="primary"):
                 del data[name]
                 save_data(data)
                 st.session_state.edit = None
