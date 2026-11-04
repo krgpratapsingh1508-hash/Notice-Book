@@ -16,10 +16,12 @@ USER_CAN_EDIT = False
 HOME = "🏠 सबका हिसाब"
 KIND_LABELS = {"diya": "🔴 मैंने दिए", "mila": "🟢 मुझे मिले"}
 
-st.set_page_config(page_title="खाता बुक", page_icon="📒", layout="centered")
+st.set_page_config(page_title="खाता बुक", page_icon="📒", layout="centered", initial_sidebar_state="collapsed")
 
 CSS = """
 <style>
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] { display: none !important; }
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap');
 
 /* ---------- पीछे का बैकग्राउंड ---------- */
@@ -664,105 +666,115 @@ if IS_ADMIN:
     if st.session_state.nav != HOME and st.session_state.nav not in data:
         st.session_state.nav = HOME
 
-    # ---------- एडमिन पैनल (साइडबार) ----------
-    st.sidebar.title("🔐 एडमिन पैनल")
+    # ---------- एडमिन पैनल (मुख्य पेज पर, साइडबार नहीं) ----------
+    with st.expander("🔐 एडमिन पैनल", expanded=True):
+        choice = st.selectbox(
+            "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
+        )
 
-    with st.sidebar.form("add_person", clear_on_submit=True):
-        new_name = st.text_input("नया व्यक्ति जोड़ें", placeholder="नाम लिखिए")
-        new_pw = st.text_input("उसका पासवर्ड सेट करें", type="password", placeholder="कम से कम 4 अक्षर")
-        if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
-            name = new_name.strip()
-            if not name:
-                st.sidebar.warning("नाम लिखिए।")
-            elif name in data or name == HOME or find_person(data, name):
-                st.sidebar.warning("यह नाम पहले से है।")
-            elif len(new_pw) < 4:
-                st.sidebar.warning("पासवर्ड कम से कम 4 अक्षर का रखिए।")
+        tab_add, tab_set, tab_bk = st.tabs(["➕ नया व्यक्ति", "⚙️ सेटिंग", "💾 बैकअप"])
+
+        # ---- नया व्यक्ति + उसका पासवर्ड ----
+        with tab_add:
+            with st.form("add_person", clear_on_submit=True):
+                new_name = st.text_input("नया व्यक्ति जोड़ें", placeholder="नाम लिखिए")
+                new_pw = st.text_input(
+                    "उसका पासवर्ड सेट करें", type="password", placeholder="कम से कम 4 अक्षर"
+                )
+                if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
+                    name = new_name.strip()
+                    if not name:
+                        st.warning("नाम लिखिए।")
+                    elif name in data or name == HOME or find_person(data, name):
+                        st.warning("यह नाम पहले से है।")
+                    elif len(new_pw) < 4:
+                        st.warning("पासवर्ड कम से कम 4 अक्षर का रखिए।")
+                    else:
+                        data[name] = []
+                        save_data(data)
+                        set_user_password(name, new_pw)
+                        goto(name)
+
+        # ---- चुने हुए व्यक्ति की सेटिंग ----
+        with tab_set:
+            if choice == HOME:
+                st.info("पहले ऊपर से किसी व्यक्ति का खाता चुनिए।")
             else:
-                data[name] = []
-                save_data(data)
-                set_user_password(name, new_pw)
-                goto(name)
+                has_pw = choice in load_users()
+                st.caption(
+                    f"👤 {choice} • " + ("🔑 पासवर्ड सेट है" if has_pw else "⚠️ पासवर्ड सेट नहीं है, यह लॉगिन नहीं कर पाएगा।")
+                )
+                pw_new = st.text_input(
+                    "नया पासवर्ड", type="password", key=f"pw_{choice}", placeholder="कम से कम 4 अक्षर"
+                )
+                if st.button("🔑 पासवर्ड बदलें", key=f"pwbtn_{choice}"):
+                    if len(pw_new) < 4:
+                        st.warning("पासवर्ड कम से कम 4 अक्षर का रखिए।")
+                    else:
+                        set_user_password(choice, pw_new)
+                        st.success("पासवर्ड सेट हो गया।")
 
-    choice = st.sidebar.radio(
-        "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
-    )
+                st.divider()
+                new_n = st.text_input("नया नाम", value=choice, key=f"rename_{choice}")
+                if st.button("नाम बदलें", key=f"rename_btn_{choice}"):
+                    nn = new_n.strip()
+                    if not nn:
+                        st.warning("नाम खाली नहीं हो सकता।")
+                    elif nn != choice and (nn in data or nn == HOME):
+                        st.warning("यह नाम पहले से है।")
+                    elif nn != choice:
+                        data[nn] = data.pop(choice)
+                        save_data(data)
+                        users = load_users()
+                        if choice in users:
+                            users[nn] = users.pop(choice)
+                            save_users(users)
+                        st.session_state.edit = None
+                        goto(nn)
 
-    # ---- चुने हुए व्यक्ति की सेटिंग ----
-    if choice != HOME:
-        with st.sidebar.expander(f"⚙️ {choice} की सेटिंग"):
-            has_pw = choice in load_users()
-            st.caption("🔑 पासवर्ड सेट है" if has_pw else "⚠️ पासवर्ड सेट नहीं है, यह यूज़र लॉगिन नहीं कर पाएगा।")
-            pw_new = st.text_input(
-                "नया पासवर्ड", type="password", key=f"pw_{choice}", placeholder="कम से कम 4 अक्षर"
+                st.divider()
+                st.caption("इस व्यक्ति का पूरा हिसाब हट जाएगा।")
+                with st.popover(f"🗑️ {choice} को हटाएं"):
+                    st.write("पक्का हटाना है? यह वापस नहीं आएगा।")
+                    if st.button("हाँ, हटा दो", key="del_person", type="primary"):
+                        del data[choice]
+                        save_data(data)
+                        users = load_users()
+                        if users.pop(choice, None) is not None:
+                            save_users(users)
+                        st.session_state.edit = None
+                        goto(HOME)
+
+        # ---- बैकअप ----
+        with tab_bk:
+            st.download_button(
+                "💾 बैकअप डाउनलोड",
+                data=json.dumps(data, ensure_ascii=False, indent=2),
+                file_name="khata_backup.json",
+                mime="application/json",
+                use_container_width=True,
             )
-            if st.button("🔑 पासवर्ड बदलें", key=f"pwbtn_{choice}", use_container_width=True):
-                if len(pw_new) < 4:
-                    st.warning("पासवर्ड कम से कम 4 अक्षर का रखिए।")
-                else:
-                    set_user_password(choice, pw_new)
-                    st.success("पासवर्ड सेट हो गया।")
-
-            st.divider()
-            new_n = st.text_input("नया नाम", value=choice, key=f"rename_{choice}")
-            if st.button("नाम बदलें", key=f"rename_btn_{choice}", use_container_width=True):
-                nn = new_n.strip()
-                if not nn:
-                    st.warning("नाम खाली नहीं हो सकता।")
-                elif nn != choice and (nn in data or nn == HOME):
-                    st.warning("यह नाम पहले से है।")
-                elif nn != choice:
-                    data[nn] = data.pop(choice)
-                    save_data(data)
-                    users = load_users()
-                    if choice in users:
-                        users[nn] = users.pop(choice)
-                        save_users(users)
-                    st.session_state.edit = None
-                    goto(nn)
-
-            st.divider()
-            st.caption("इस व्यक्ति का पूरा हिसाब हट जाएगा।")
-            with st.popover(f"🗑️ {choice} को हटाएं", use_container_width=True):
-                st.write("पक्का हटाना है? यह वापस नहीं आएगा।")
-                if st.button("हाँ, हटा दो", key="del_person", type="primary"):
-                    del data[choice]
-                    save_data(data)
-                    users = load_users()
-                    if users.pop(choice, None) is not None:
-                        save_users(users)
-                    st.session_state.edit = None
+            uploaded = st.file_uploader("बैकअप वापस डालें", type="json")
+            if uploaded is not None and st.button("♻️ रिस्टोर करें", use_container_width=True):
+                try:
+                    restored = json.load(uploaded)
+                    for v in restored.values():
+                        sort_entries(v)
+                    st.session_state.data = restored
+                    save_data(restored)
                     goto(HOME)
+                except (json.JSONDecodeError, AttributeError, KeyError):
+                    st.error("फ़ाइल सही नहीं है।")
 
-    st.sidebar.divider()
-    st.sidebar.download_button(
-        "💾 बैकअप डाउनलोड",
-        data=json.dumps(data, ensure_ascii=False, indent=2),
-        file_name="khata_backup.json",
-        mime="application/json",
-        use_container_width=True,
-    )
-    uploaded = st.sidebar.file_uploader("बैकअप वापस डालें", type="json")
-    if uploaded is not None and st.sidebar.button("♻️ रिस्टोर करें", use_container_width=True):
-        try:
-            restored = json.load(uploaded)
-            for v in restored.values():
-                sort_entries(v)
-            st.session_state.data = restored
-            save_data(restored)
-            goto(HOME)
-        except (json.JSONDecodeError, AttributeError, KeyError):
-            st.sidebar.error("फ़ाइल सही नहीं है।")
-
-    st.sidebar.divider()
-    if st.sidebar.button("🚪 लॉगआउट", key="logout_admin", use_container_width=True):
-        logout()
+        st.divider()
+        if st.button("🚪 लॉगआउट", key="logout_admin"):
+            logout()
 else:
     # ---------- यूज़र: सिर्फ़ अपना खाता ----------
     choice = st.session_state.user_name
-    st.sidebar.title("📒 खाता बुक")
-    st.sidebar.markdown(f"👤 **{esc(choice)}**")
-    if st.sidebar.button("🚪 लॉगआउट", key="logout_user", use_container_width=True):
+    top_l, top_r = st.columns([4, 1], vertical_alignment="center")
+    top_l.markdown(f"👤 **{esc(choice)}**")
+    if top_r.button("🚪 लॉगआउट", key="logout_user", use_container_width=True):
         logout()
 
 # =====================================================
@@ -772,7 +784,7 @@ if choice == HOME:
     st.title("📒 सबका हिसाब")
 
     if not data:
-        st.info("अभी कोई व्यक्ति नहीं है। साइडबार से नया नाम जोड़ें।")
+        st.info("अभी कोई व्यक्ति नहीं है। एडमिन पैनल से नया नाम जोड़ें।")
     else:
         to_receive = sum(max(balance(e), 0) for e in data.values())
         to_pay = sum(max(-balance(e), 0) for e in data.values())
