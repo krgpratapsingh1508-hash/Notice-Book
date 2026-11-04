@@ -4,6 +4,7 @@ import html
 import io
 import json
 import os
+import unicodedata
 import urllib.request
 from datetime import date, datetime
 
@@ -968,7 +969,10 @@ else:
         # ---- Excel / PDF ----
         st.write("")
         d1, d2 = st.columns(2)
-        safe = "".join(ch if ch.isalnum() or ch in " _-" else "_" for ch in name).strip() or "khata"
+        safe = "".join(
+            ch if ch.isalnum() or unicodedata.category(ch).startswith("M") or ch in " _-" else "_"
+            for ch in name
+        ).strip() or "khata"
         d1.download_button(
             "📊 Excel डाउनलोड",
             make_excel(name, entries),
@@ -986,7 +990,7 @@ else:
             d2.download_button(
                 "📄 PDF डाउनलोड",
                 pdf_bytes,
-                file_name=f"{safe}_khata.pdf",
+                file_name=f"{safe} ({date.today().strftime('%d-%m-%Y')}).pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 type="primary",
