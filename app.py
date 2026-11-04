@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import html
 import io
 import json
@@ -8,6 +10,9 @@ from datetime import date, datetime
 import streamlit as st
 
 DATA_FILE = "khata.json"
+USERS_FILE = "khata_users.json"  # यूज़र पासवर्ड (हैश के रूप में)
+# क्या यूज़र अपनी पुरानी एंट्री बदल/हटा सकता है? (False = सिर्फ़ नई एंट्री जोड़ सकता है)
+USER_CAN_EDIT = False
 HOME = "🏠 सबका हिसाब"
 KIND_LABELS = {"diya": "🔴 मैंने दिए", "mila": "🟢 मुझे मिले"}
 
@@ -180,6 +185,48 @@ def load_data():
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def save_users(users):
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+
+
+def _hash_pw(pw, salt):
+    return hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), bytes.fromhex(salt), 120_000).hex()
+
+
+def set_user_password(name, pw):
+    users = load_users()
+    salt = os.urandom(16).hex()
+    users[name] = {"salt": salt, "hash": _hash_pw(pw, salt)}
+    save_users(users)
+
+
+def check_user_password(name, pw):
+    rec = load_users().get(name)
+    if not rec:
+        return False
+    return hmac.compare_digest(rec["hash"], _hash_pw(pw, rec["salt"]))
+
+
+def find_person(data, typed):
+    """टाइप किया नाम (बड़े/छोटे अक्षर की परवाह किए बिना) डेटा के नाम से मिलाओ।"""
+    t = typed.strip().lower()
+    for n in data:
+        if n.lower() == t:
+            return n
+    return None
 
 
 def balance(entries):
@@ -555,75 +602,108 @@ if "data" not in st.session_state:
     st.session_state.data = load_data()
 if "edit" not in st.session_state:
     st.session_state.edit = None
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
+if "role" not in st.session_state:
+    st.session_state.role = None      # None / "admin" / "user"
+if "user_name" not in st.session_state:
+    st.session_state.user_name = None
 if "nav" not in st.session_state:
     st.session_state.nav = HOME
 if "pending_nav" in st.session_state:
     st.session_state.nav = st.session_state.pop("pending_nav")
 
 data = st.session_state.data
-if st.session_state.nav != HOME and st.session_state.nav not in data:
+
+
+def logout():
+    st.session_state.role = None
+    st.session_state.user_name = None
+    st.session_state.edit = None
     st.session_state.nav = HOME
+    st.rerun()
 
-# ---------- साइडबार ----------
-st.sidebar.title("📒 खाता बुक")
 
-with st.sidebar.form("add_person", clear_on_submit=True):
-    new_name = st.text_input("नया व्यक्ति जोड़ें", placeholder="नाम लिखिए")
-    if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
-        name = new_name.strip()
-        if not name:
-            st.sidebar.warning("नाम लिखिए।")
-        elif name in data or name == HOME:
-            st.sidebar.warning("यह नाम पहले से है।")
-        else:
-            data[name] = []
-            save_data(data)
-            goto(name)
+# =====================================================
+# लॉगिन
+# =====================================================
+if st.session_state.role is None:
+    st.title("📒 खाता बुक")
+    tab_user, tab_admin = st.tabs(["👤 यूज़र लॉगिन", "🔐 एडमिन लॉगिन"])
 
-choice = st.sidebar.radio(
-    "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
-)
+    with tab_user:
+        with st.form("user_login"):
+            u_name = st.text_input("आपका नाम", placeholder="जो नाम एडमिन ने जोड़ा है")
+            u_pw = st.text_input("पासवर्ड", type="password", key="u_pw")
+            if st.form_submit_button("लॉगिन", use_container_width=True, type="primary"):
+                person = find_person(data, u_name) if u_name.strip() else None
+                if person and check_user_password(person, u_pw):
+                    st.session_state.role = "user"
+                    st.session_state.user_name = person
+                    st.rerun()
+                else:
+                    st.error("नाम या पासवर्ड गलत है।")
 
-st.sidebar.divider()
-st.sidebar.download_button(
-    "💾 बैकअप डाउनलोड",
-    data=json.dumps(data, ensure_ascii=False, indent=2),
-    file_name="khata_backup.json",
-    mime="application/json",
-    use_container_width=True,
-)
-uploaded = st.sidebar.file_uploader("बैकअप वापस डालें", type="json")
-if uploaded is not None and st.sidebar.button("♻️ रिस्टोर करें", use_container_width=True):
-    try:
-        restored = json.load(uploaded)
-        for v in restored.values():
-            sort_entries(v)
-        st.session_state.data = restored
-        save_data(restored)
-        goto(HOME)
-    except (json.JSONDecodeError, AttributeError, KeyError):
-        st.sidebar.error("फ़ाइल सही नहीं है।")
-
-# ---------- एडमिन पैनल (सिर्फ़ साइडबार में) ----------
-st.sidebar.divider()
-with st.sidebar.expander("🔐 एडमिन पैनल", expanded=st.session_state.is_admin):
-    if not st.session_state.is_admin:
-        with st.form("admin_login", clear_on_submit=True):
-            pw = st.text_input("पासवर्ड", type="password")
-            if st.form_submit_button("लॉगिन", use_container_width=True):
-                if pw == admin_password():
-                    st.session_state.is_admin = True
+    with tab_admin:
+        with st.form("admin_login"):
+            a_pw = st.text_input("एडमिन पासवर्ड", type="password", key="a_pw")
+            if st.form_submit_button("लॉगिन", use_container_width=True, type="primary"):
+                if a_pw == admin_password():
+                    st.session_state.role = "admin"
                     st.rerun()
                 else:
                     st.error("पासवर्ड गलत है।")
-    else:
-        st.caption("✅ एडमिन मोड चालू है")
-        if choice == HOME:
-            st.info("नाम बदलने या हटाने के लिए ऊपर से किसी व्यक्ति का खाता चुनें।")
-        else:
-            st.markdown("**⚙️ नाम बदलें / व्यक्ति हटाएं**")
+    st.stop()
+
+IS_ADMIN = st.session_state.role == "admin"
+CAN_EDIT = IS_ADMIN or USER_CAN_EDIT
+
+# यूज़र का खाता हट गया हो तो बाहर करो
+if not IS_ADMIN and st.session_state.user_name not in data:
+    logout()
+
+if IS_ADMIN:
+    if st.session_state.nav != HOME and st.session_state.nav not in data:
+        st.session_state.nav = HOME
+
+    # ---------- एडमिन पैनल (साइडबार) ----------
+    st.sidebar.title("🔐 एडमिन पैनल")
+
+    with st.sidebar.form("add_person", clear_on_submit=True):
+        new_name = st.text_input("नया व्यक्ति जोड़ें", placeholder="नाम लिखिए")
+        new_pw = st.text_input("उसका पासवर्ड सेट करें", type="password", placeholder="कम से कम 4 अक्षर")
+        if st.form_submit_button("➕ जोड़ें", use_container_width=True, type="primary"):
+            name = new_name.strip()
+            if not name:
+                st.sidebar.warning("नाम लिखिए।")
+            elif name in data or name == HOME or find_person(data, name):
+                st.sidebar.warning("यह नाम पहले से है।")
+            elif len(new_pw) < 4:
+                st.sidebar.warning("पासवर्ड कम से कम 4 अक्षर का रखिए।")
+            else:
+                data[name] = []
+                save_data(data)
+                set_user_password(name, new_pw)
+                goto(name)
+
+    choice = st.sidebar.radio(
+        "किसका खाता?", [HOME] + sorted(data.keys(), key=str.lower), key="nav"
+    )
+
+    # ---- चुने हुए व्यक्ति की सेटिंग ----
+    if choice != HOME:
+        with st.sidebar.expander(f"⚙️ {choice} की सेटिंग"):
+            has_pw = choice in load_users()
+            st.caption("🔑 पासवर्ड सेट है" if has_pw else "⚠️ पासवर्ड सेट नहीं है, यह यूज़र लॉगिन नहीं कर पाएगा।")
+            pw_new = st.text_input(
+                "नया पासवर्ड", type="password", key=f"pw_{choice}", placeholder="कम से कम 4 अक्षर"
+            )
+            if st.button("🔑 पासवर्ड बदलें", key=f"pwbtn_{choice}", use_container_width=True):
+                if len(pw_new) < 4:
+                    st.warning("पासवर्ड कम से कम 4 अक्षर का रखिए।")
+                else:
+                    set_user_password(choice, pw_new)
+                    st.success("पासवर्ड सेट हो गया।")
+
+            st.divider()
             new_n = st.text_input("नया नाम", value=choice, key=f"rename_{choice}")
             if st.button("नाम बदलें", key=f"rename_btn_{choice}", use_container_width=True):
                 nn = new_n.strip()
@@ -634,6 +714,10 @@ with st.sidebar.expander("🔐 एडमिन पैनल", expanded=st.sessio
                 elif nn != choice:
                     data[nn] = data.pop(choice)
                     save_data(data)
+                    users = load_users()
+                    if choice in users:
+                        users[nn] = users.pop(choice)
+                        save_users(users)
                     st.session_state.edit = None
                     goto(nn)
 
@@ -644,13 +728,42 @@ with st.sidebar.expander("🔐 एडमिन पैनल", expanded=st.sessio
                 if st.button("हाँ, हटा दो", key="del_person", type="primary"):
                     del data[choice]
                     save_data(data)
+                    users = load_users()
+                    if users.pop(choice, None) is not None:
+                        save_users(users)
                     st.session_state.edit = None
                     goto(HOME)
 
-        st.divider()
-        if st.button("🚪 लॉगआउट", key="admin_logout", use_container_width=True):
-            st.session_state.is_admin = False
-            st.rerun()
+    st.sidebar.divider()
+    st.sidebar.download_button(
+        "💾 बैकअप डाउनलोड",
+        data=json.dumps(data, ensure_ascii=False, indent=2),
+        file_name="khata_backup.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+    uploaded = st.sidebar.file_uploader("बैकअप वापस डालें", type="json")
+    if uploaded is not None and st.sidebar.button("♻️ रिस्टोर करें", use_container_width=True):
+        try:
+            restored = json.load(uploaded)
+            for v in restored.values():
+                sort_entries(v)
+            st.session_state.data = restored
+            save_data(restored)
+            goto(HOME)
+        except (json.JSONDecodeError, AttributeError, KeyError):
+            st.sidebar.error("फ़ाइल सही नहीं है।")
+
+    st.sidebar.divider()
+    if st.sidebar.button("🚪 लॉगआउट", key="logout_admin", use_container_width=True):
+        logout()
+else:
+    # ---------- यूज़र: सिर्फ़ अपना खाता ----------
+    choice = st.session_state.user_name
+    st.sidebar.title("📒 खाता बुक")
+    st.sidebar.markdown(f"👤 **{esc(choice)}**")
+    if st.sidebar.button("🚪 लॉगआउट", key="logout_user", use_container_width=True):
+        logout()
 
 # =====================================================
 # होम पेज
@@ -761,83 +874,84 @@ else:
     else:
         st.markdown(ledger_html(entries), unsafe_allow_html=True)
 
-        # ---- बदलें / हटाएं ----
-        editing = st.session_state.edit
-        is_editing_here = bool(editing) and editing[0] == name and editing[1] < len(entries)
+        if CAN_EDIT:
+            # ---- बदलें / हटाएं ----
+            editing = st.session_state.edit
+            is_editing_here = bool(editing) and editing[0] == name and editing[1] < len(entries)
 
-        with st.expander("✏️ एंट्री बदलें / हटाएं", expanded=is_editing_here):
+            with st.expander("✏️ एंट्री बदलें / हटाएं", expanded=is_editing_here):
 
-            def label_for(i):
-                e = entries[i]
-                kind_txt = "दिए" if e["type"] == "diya" else "मिले"
-                txt = f"#{i + 1} • {fmt_date(e['date'])} • {kind_txt} {inr(e['amount'])}"
-                return txt + (f" • {e['note']}" if e["note"] else "")
+                def label_for(i):
+                    e = entries[i]
+                    kind_txt = "दिए" if e["type"] == "diya" else "मिले"
+                    txt = f"#{i + 1} • {fmt_date(e['date'])} • {kind_txt} {inr(e['amount'])}"
+                    return txt + (f" • {e['note']}" if e["note"] else "")
 
-            default_idx = editing[1] if is_editing_here else 0
-            sel = st.selectbox(
-                "कौन सी एंट्री?",
-                list(range(len(entries))),
-                index=default_idx,
-                format_func=label_for,
-                key=f"sel_{name}",
-            )
+                default_idx = editing[1] if is_editing_here else 0
+                sel = st.selectbox(
+                    "कौन सी एंट्री?",
+                    list(range(len(entries))),
+                    index=default_idx,
+                    format_func=label_for,
+                    key=f"sel_{name}",
+                )
 
-            b1, b2 = st.columns(2)
-            if b1.button("✏️ बदलें", use_container_width=True, key=f"editbtn_{name}"):
-                st.session_state.edit = (name, sel)
-                st.rerun()
-            with b2.popover("🗑️ हटाएं", use_container_width=True):
-                st.write("पक्का हटाना है?")
-                if st.button("हाँ, हटाओ", key=f"del_{name}", type="primary"):
-                    entries.pop(sel)
-                    save_data(data)
-                    st.session_state.edit = None
-                    st.session_state.pop(f"sel_{name}", None)
+                b1, b2 = st.columns(2)
+                if b1.button("✏️ बदलें", use_container_width=True, key=f"editbtn_{name}"):
+                    st.session_state.edit = (name, sel)
                     st.rerun()
-
-            if is_editing_here:
-                i = editing[1]
-                e = entries[i]
-                with st.form(f"edit_form_{name}_{i}"):
-                    st.markdown(f"**✏️ एंट्री #{i + 1} बदलें**")
-                    k = st.radio(
-                        "क्या हुआ?",
-                        list(KIND_LABELS),
-                        index=0 if e["type"] == "diya" else 1,
-                        format_func=KIND_LABELS.get,
-                        horizontal=True,
-                    )
-                    c1, c2 = st.columns(2)
-                    amt = c1.number_input(
-                        "राशि (₹)", min_value=0.0, step=10.0, value=float(e["amount"]), format="%.2f"
-                    )
-                    try:
-                        dflt = date.fromisoformat(e["date"])
-                    except ValueError:
-                        dflt = date.today()
-                    dt = c2.date_input("तारीख", value=dflt)
-                    nt = st.text_input("नोट", value=e["note"])
-                    s1, s2 = st.columns(2)
-                    save = s1.form_submit_button("💾 सेव", use_container_width=True, type="primary")
-                    cancel = s2.form_submit_button("✖️ रद्द करें", use_container_width=True)
-                if save:
-                    if amt <= 0:
-                        st.warning("राशि 0 से ज़्यादा होनी चाहिए।")
-                    else:
-                        entries[i] = {
-                            "date": dt.isoformat(),
-                            "type": k,
-                            "amount": float(amt),
-                            "note": nt.strip(),
-                        }
-                        sort_entries(entries)
+                with b2.popover("🗑️ हटाएं", use_container_width=True):
+                    st.write("पक्का हटाना है?")
+                    if st.button("हाँ, हटाओ", key=f"del_{name}", type="primary"):
+                        entries.pop(sel)
                         save_data(data)
                         st.session_state.edit = None
                         st.session_state.pop(f"sel_{name}", None)
                         st.rerun()
-                if cancel:
-                    st.session_state.edit = None
-                    st.rerun()
+
+                if is_editing_here:
+                    i = editing[1]
+                    e = entries[i]
+                    with st.form(f"edit_form_{name}_{i}"):
+                        st.markdown(f"**✏️ एंट्री #{i + 1} बदलें**")
+                        k = st.radio(
+                            "क्या हुआ?",
+                            list(KIND_LABELS),
+                            index=0 if e["type"] == "diya" else 1,
+                            format_func=KIND_LABELS.get,
+                            horizontal=True,
+                        )
+                        c1, c2 = st.columns(2)
+                        amt = c1.number_input(
+                            "राशि (₹)", min_value=0.0, step=10.0, value=float(e["amount"]), format="%.2f"
+                        )
+                        try:
+                            dflt = date.fromisoformat(e["date"])
+                        except ValueError:
+                            dflt = date.today()
+                        dt = c2.date_input("तारीख", value=dflt)
+                        nt = st.text_input("नोट", value=e["note"])
+                        s1, s2 = st.columns(2)
+                        save = s1.form_submit_button("💾 सेव", use_container_width=True, type="primary")
+                        cancel = s2.form_submit_button("✖️ रद्द करें", use_container_width=True)
+                    if save:
+                        if amt <= 0:
+                            st.warning("राशि 0 से ज़्यादा होनी चाहिए।")
+                        else:
+                            entries[i] = {
+                                "date": dt.isoformat(),
+                                "type": k,
+                                "amount": float(amt),
+                                "note": nt.strip(),
+                            }
+                            sort_entries(entries)
+                            save_data(data)
+                            st.session_state.edit = None
+                            st.session_state.pop(f"sel_{name}", None)
+                            st.rerun()
+                    if cancel:
+                        st.session_state.edit = None
+                        st.rerun()
 
         # ---- Excel / PDF ----
         st.write("")
