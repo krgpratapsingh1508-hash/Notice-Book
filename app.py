@@ -621,7 +621,7 @@ def logout():
     st.session_state.role = None
     st.session_state.user_name = None
     st.session_state.edit = None
-    st.session_state.nav = HOME
+    st.session_state.pending_nav = HOME  # nav widget बन चुका है, सीधे बदल नहीं सकते
     st.rerun()
 
 
